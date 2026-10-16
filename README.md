@@ -150,6 +150,29 @@ Each entity exposes additional state attributes alongside its main value. This i
 | `forecast`           | list     | Simple `{ time, value }` points for automations and optimizers     |
 | `detailedForecast`   | list     | Full raw forecast intervals (ignored by HA recorder)               |
 
+#### `detailedForecast` entries
+
+| Attribute                  | Type     | Description                                                                          |
+| -------------------------- | -------- | ------------------------------------------------------------------------------------ |
+| `per_kwh`                  | float    | Price selected by the configured pricing mode ($/kWh)                                |
+| `aemo_per_kwh`             | float    | AEMO-based price including customer charges ($/kWh)                                  |
+| `spot_per_kwh`             | float    | Raw AEMO market price without customer charges ($/kWh)                               |
+| `advanced_price_predicted` | object   | Amber advanced prices including customer charges: `{ low, predicted, high }` ($/kWh) |
+| `duration`                 | integer  | Interval length in minutes                                                           |
+| `start_time`               | datetime | Interval start in UTC                                                                |
+| `end_time`                 | datetime | Interval end in UTC                                                                  |
+| `nem_time`                 | datetime | Interval end in NEM time (UTC+10)                                                    |
+| `renewables`               | float    | Renewable generation percentage                                                      |
+| `descriptor`               | string   | Amber's price descriptor (e.g. `low`, `high`, `spike`)                               |
+| `spike_status`             | string   | Price spike status: `none`, `potential`, or `spike`                                  |
+| `estimate`                 | boolean  | Whether the price is an estimate (not yet confirmed)                                 |
+| `demand_window`            | boolean  | Whether the interval is within the customer's demand-tariff window                   |
+| `tariff_period`            | string   | Active time-of-use period (e.g. `peak`, `offPeak`)                                   |
+| `tariff_season`            | string   | Active tariff season or schedule                                                     |
+| `tariff_block`             | float    | Active consumption block for block tariffs                                           |
+
+Advanced prices may be absent; tariff fields may be absent or null.
+
 ### `site` sensor (diagnostic)
 
 | Attribute         | Type    | Description                                          |

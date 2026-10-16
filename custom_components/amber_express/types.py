@@ -26,7 +26,7 @@ class ChannelData(TypedDict, total=False):
     """Per-channel price data in internal format.
 
     Required fields (always present when the dict has interval data):
-    - per_kwh, spot_per_kwh, start_time, end_time, nem_time
+    - per_kwh, aemo_per_kwh, spot_per_kwh, start_time, end_time, nem_time
     - renewables, descriptor, spike_status, estimate
 
     Optional fields (only present when SDK provides them):
@@ -39,6 +39,7 @@ class ChannelData(TypedDict, total=False):
 
     # Required fields (SDK guarantees these values when interval data exists)
     per_kwh: float
+    aemo_per_kwh: float
     spot_per_kwh: float
     start_time: str
     end_time: str

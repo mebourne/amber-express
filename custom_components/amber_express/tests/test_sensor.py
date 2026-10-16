@@ -6,6 +6,7 @@ from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock
 
 from amberelectric.models import Site
+from amberelectric.models.advanced_price import AdvancedPrice
 from amberelectric.models.channel import Channel
 from amberelectric.models.channel_type import ChannelType
 from amberelectric.models.site_status import SiteStatus
@@ -13,16 +14,20 @@ from homeassistant.components.sensor import SensorDeviceClass, SensorStateClass
 from homeassistant.const import PERCENTAGE, EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
+import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
+from conftest import make_current_interval, make_forecast_interval, wrap_interval
 from custom_components.amber_express import AmberRuntimeData, SiteRuntimeData
 from custom_components.amber_express.const import (
     ATTR_ADVANCED_PRICE,
+    ATTR_AEMO_PER_KWH,
     ATTR_DEMAND_WINDOW,
     ATTR_DETAILED_FORECAST,
     ATTR_DURATION,
     ATTR_END_TIME,
     ATTR_ESTIMATE,
+    ATTR_FORECAST,
     ATTR_PER_KWH,
     ATTR_SPOT_PER_KWH,
     ATTR_START_TIME,
@@ -33,9 +38,11 @@ from custom_components.amber_express.const import (
     CONF_PRICING_MODE,
     CONF_SITE_ID,
     CONF_SITE_NAME,
+    PRICING_MODE_AEMO,
     PRICING_MODE_APP,
     SUBENTRY_TYPE_SITE,
 )
+from custom_components.amber_express.data import IntervalProcessor
 from custom_components.amber_express.sensor import (
     CHANNEL_PRICE_TRANSLATION_KEY,
     SENSOR_DESCRIPTIONS,
@@ -456,6 +463,7 @@ class TestAmberPriceSensor:
                 {
                     ATTR_START_TIME: "2024-01-01T10:05:00+00:00",
                     ATTR_PER_KWH: 0.26,
+                    ATTR_AEMO_PER_KWH: 0.18,
                     ATTR_DEMAND_WINDOW: True,
                 },
             ]
@@ -471,6 +479,7 @@ class TestAmberPriceSensor:
         assert sensor.native_value == 0.30
         attrs = sensor.extra_state_attributes
         assert attrs["forecast"][0]["value"] == 0.31
+        assert attrs[ATTR_DETAILED_FORECAST][0][ATTR_AEMO_PER_KWH] == 0.18
 
     def test_price_sensor_demand_window_surcharge_strips_float_artifacts(
         self,
@@ -498,6 +507,71 @@ class TestAmberPriceSensor:
 
 class TestAmberPriceSensorDetailedForecast:
     """Tests for the unrecorded detailedForecast attribute on AmberPriceSensor."""
+
+    @pytest.mark.parametrize(
+        ("channel_type", "channel", "sign"),
+        [
+            (ChannelType.GENERAL, CHANNEL_GENERAL, 1),
+            (ChannelType.FEEDIN, CHANNEL_FEED_IN, -1),
+            (ChannelType.CONTROLLEDLOAD, CHANNEL_CONTROLLED_LOAD, 1),
+        ],
+    )
+    @pytest.mark.parametrize(
+        ("pricing_mode", "with_advanced_price", "selected_prices"),
+        [
+            (PRICING_MODE_AEMO, True, (0.2512345, -0.0876543, 0.0)),
+            (PRICING_MODE_APP, True, (0.30, 0.14, 0.17)),
+            (PRICING_MODE_APP, False, (0.2512345, -0.0876543, 0.0)),
+        ],
+    )
+    def test_detailed_forecast_preserves_aemo_price(
+        self,
+        mock_config_entry: MockConfigEntry,
+        channel_type: ChannelType,
+        channel: str,
+        sign: int,
+        pricing_mode: str,
+        with_advanced_price: bool,
+        selected_prices: tuple[float, float, float],
+    ) -> None:
+        """Raw AEMO prices survive processing, mode selection, and feed-in display."""
+        current = make_current_interval(
+            channel_type=channel_type,
+            per_kwh=25.12345,
+            advanced_price=AdvancedPrice(low=20.0, predicted=30.0, high=40.0) if with_advanced_price else None,
+        )
+        forecast = make_forecast_interval(
+            channel_type=channel_type,
+            per_kwh=-8.76543,
+            advanced_price=AdvancedPrice(low=10.0, predicted=14.0, high=18.0) if with_advanced_price else None,
+        )
+        zero_forecast = make_forecast_interval(
+            channel_type=channel_type,
+            start_time=datetime(2024, 1, 1, 10, 35, tzinfo=UTC),
+            per_kwh=0.0,
+            advanced_price=AdvancedPrice(low=12.0, predicted=17.0, high=22.0) if with_advanced_price else None,
+        )
+        data = IntervalProcessor(pricing_mode).process_intervals(
+            [wrap_interval(current), wrap_interval(forecast), wrap_interval(zero_forecast)]
+        )
+        channel_data = data[channel]
+        subentry = create_mock_subentry(pricing_mode=pricing_mode)
+        mock_config_entry.subentries = {subentry.subentry_id: subentry}
+        coordinator = MagicMock()
+        coordinator.get_channel_data.return_value = channel_data
+        coordinator.get_forecasts.return_value = channel_data[ATTR_FORECAST]
+        coordinator.data_source = "polling"
+        sensor = AmberPriceSensor(coordinator, mock_config_entry, subentry, channel)
+
+        attrs = sensor.extra_state_attributes
+        detailed = attrs[ATTR_DETAILED_FORECAST]
+        assert [entry[ATTR_AEMO_PER_KWH] for entry in detailed] == [0.2512345 * sign, -0.0876543 * sign, 0.0]
+        assert [entry[ATTR_PER_KWH] for entry in detailed] == [price * sign for price in selected_prices]
+        assert [entry["value"] for entry in attrs[ATTR_FORECAST]] == [
+            round(price * sign, 4) for price in selected_prices
+        ]
+        assert sensor.native_value == selected_prices[0] * sign
+        assert [entry[ATTR_AEMO_PER_KWH] for entry in channel_data[ATTR_FORECAST]] == [0.2512345, -0.0876543, 0.0]
 
     def test_detailed_forecast_is_unrecorded(self) -> None:
         """The detailedForecast attribute is excluded from the recorder."""

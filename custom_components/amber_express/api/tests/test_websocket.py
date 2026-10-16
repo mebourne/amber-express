@@ -23,6 +23,7 @@ from conftest import make_current_interval
 from custom_components.amber_express.api import WS_CHANNEL_TYPE_MAP, AmberWebSocketClient
 from custom_components.amber_express.const import (
     ATTR_ADVANCED_PRICE,
+    ATTR_AEMO_PER_KWH,
     ATTR_DEMAND_WINDOW,
     ATTR_DESCRIPTOR,
     ATTR_DURATION,
@@ -42,6 +43,7 @@ from custom_components.amber_express.const import (
     WS_MAX_RECONNECT_DELAY,
     WS_MIN_RECONNECT_DELAY,
 )
+from custom_components.amber_express.types import ChannelData
 
 # Suppress unawaited coroutine warnings in tests
 pytestmark = pytest.mark.filterwarnings("ignore::RuntimeWarning")
@@ -559,6 +561,58 @@ class TestAmberWebSocketClient:
 
             assert client._connected is True
             mock_ws.send_json.assert_called_once()
+
+    @pytest.mark.parametrize(("per_kwh", "expected"), [(25.12345, 0.2512345), (-8.76543, -0.0876543), (0.0, 0.0)])
+    async def test_price_update_preserves_aemo_price(
+        self, hass: HomeAssistant, per_kwh: float, expected: float
+    ) -> None:
+        """Test price updates preserve the AEMO price at full precision."""
+        updates: list[dict[str, ChannelData]] = []
+        received = asyncio.Event()
+
+        def on_message(data: dict[str, ChannelData]) -> None:
+            updates.append(data)
+            received.set()
+
+        client = AmberWebSocketClient(
+            hass=hass,
+            api_token="test_token",  # noqa: S106
+            site_id="test_site",
+            on_message=on_message,
+        )
+
+        price_data = make_ws_price_interval(per_kwh=per_kwh)
+        price_data["advancedPrice"] = {"low": 10.0, "predicted": 30.0, "high": 40.0}
+        text_msg = MagicMock()
+        text_msg.type = aiohttp.WSMsgType.TEXT
+        text_msg.data = json.dumps(
+            {"service": "live-prices", "action": "price-update", "data": {"prices": [price_data]}}
+        )
+
+        close_msg = MagicMock()
+        close_msg.type = aiohttp.WSMsgType.CLOSED
+
+        mock_ws = AsyncMock()
+        mock_ws.closed = False
+        mock_ws.receive.side_effect = [text_msg, close_msg]
+
+        mock_session = MagicMock()
+        mock_session.ws_connect = MagicMock(return_value=AsyncContextManagerMock(mock_ws))
+
+        with patch(
+            "custom_components.amber_express.api.websocket.async_get_clientsession",
+            return_value=mock_session,
+        ):
+            try:
+                await client.start()
+                await asyncio.wait_for(received.wait(), timeout=1)
+            finally:
+                await client.stop()
+
+        general = updates[0][CHANNEL_GENERAL]
+        assert general[ATTR_AEMO_PER_KWH] == expected
+        assert general[ATTR_PER_KWH] == expected
+        assert general[ATTR_ADVANCED_PRICE]["predicted"] == 0.30
 
     async def test_connect_and_listen_error_message(self, hass: HomeAssistant, mock_on_message: MagicMock) -> None:
         """Test _connect_and_listen handles error messages."""

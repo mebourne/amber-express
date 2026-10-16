@@ -18,6 +18,7 @@ from conftest import make_current_interval, make_rate_limit_headers, make_site, 
 from custom_components.amber_express.api import AmberApiError
 from custom_components.amber_express.const import (
     ATTR_ADVANCED_PRICE,
+    ATTR_AEMO_PER_KWH,
     ATTR_DEMAND_WINDOW,
     ATTR_END_TIME,
     ATTR_ESTIMATE,
@@ -1350,18 +1351,24 @@ class TestHeldPriceAtBoundary:
         assert general[ATTR_FORECAST][1]["start_time"] == "2024-01-01T10:10:00+00:00"
 
     def test_held_price_preserves_all_price_fields(self, hass: HomeAssistant) -> None:
-        """Test held price preserves per_kwh, spot_per_kwh, advanced_price_predicted."""
+        """Test held price preserves all price fields."""
         coordinator = self._coordinator_with_held_config(hass, wait_for_confirmed=True)
         advanced = {"low": 0.20, "predicted": 0.25, "high": 0.30}
         coordinator.current_data = {
             CHANNEL_GENERAL: {
                 ATTR_PER_KWH: 0.25,
+                ATTR_AEMO_PER_KWH: 0.21,
                 ATTR_SPOT_PER_KWH: 0.22,
                 ATTR_ADVANCED_PRICE: advanced,
                 ATTR_ESTIMATE: False,
                 ATTR_FORECAST: [
                     {"start_time": "2024-01-01T10:00:00+00:00", "per_kwh": 0.25},
-                    {"start_time": "2024-01-01T10:05:00+00:00", "per_kwh": 0.30, "spot_per_kwh": 0.28},
+                    {
+                        "start_time": "2024-01-01T10:05:00+00:00",
+                        "per_kwh": 0.30,
+                        "aemo_per_kwh": 0.31,
+                        "spot_per_kwh": 0.28,
+                    },
                 ],
             },
         }
@@ -1372,6 +1379,11 @@ class TestHeldPriceAtBoundary:
         assert general[ATTR_PER_KWH] == 0.25
         assert general[ATTR_SPOT_PER_KWH] == 0.22
         assert general[ATTR_ADVANCED_PRICE] == advanced
+        held = coordinator.get_forecasts(CHANNEL_GENERAL)[0]
+        assert held[ATTR_AEMO_PER_KWH] == 0.21
+        assert held[ATTR_PER_KWH] == 0.25
+        assert held[ATTR_SPOT_PER_KWH] == 0.22
+        assert held[ATTR_ADVANCED_PRICE] == advanced
 
     def test_held_price_sets_estimate_true(self, hass: HomeAssistant) -> None:
         """Test held price sets estimate=True on the new current interval."""

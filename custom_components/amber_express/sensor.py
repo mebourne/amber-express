@@ -19,6 +19,7 @@ from homeassistant.util import dt as dt_util
 
 from .const import (
     ATTR_ADVANCED_PRICE,
+    ATTR_AEMO_PER_KWH,
     ATTR_DEMAND_WINDOW,
     ATTR_DESCRIPTOR,
     ATTR_DETAILED_FORECAST,
@@ -412,7 +413,7 @@ class AmberPriceSensor(AmberBaseSensor):
     def _negate_prices(self, data: ChannelData) -> dict[str, Any]:
         """Negate price fields for the feed-in channel."""
         result: dict[str, Any] = dict(data)
-        for key in (ATTR_PER_KWH, ATTR_ADVANCED_PRICE):
+        for key in (ATTR_PER_KWH, ATTR_AEMO_PER_KWH, ATTR_ADVANCED_PRICE):
             if key not in result:
                 continue
             value = result[key]

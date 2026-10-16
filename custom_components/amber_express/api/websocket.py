@@ -16,6 +16,7 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from custom_components.amber_express.const import (
     ATTR_ADVANCED_PRICE,
+    ATTR_AEMO_PER_KWH,
     ATTR_DEMAND_WINDOW,
     ATTR_DESCRIPTOR,
     ATTR_DURATION,
@@ -311,6 +312,7 @@ class AmberWebSocketClient:
         """Extract data from a parsed CurrentInterval object."""
         result: ChannelData = {
             ATTR_PER_KWH: cents_to_dollars(interval.per_kwh),  # type: ignore[typeddict-item]
+            ATTR_AEMO_PER_KWH: cents_to_dollars(interval.per_kwh),  # type: ignore[typeddict-item]
             ATTR_SPOT_PER_KWH: cents_to_dollars(interval.spot_per_kwh),  # type: ignore[typeddict-item]
             ATTR_DURATION: interval.duration,
             ATTR_START_TIME: interval.start_time.isoformat(),
